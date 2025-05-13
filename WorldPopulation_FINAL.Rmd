@@ -1,0 +1,537 @@
+---
+title: "The Rise & Fall of Human Increase"
+authors: Rachel Cu & Rebecca Hinrichs
+date: "1 December 2021 1:50pm"
+output:
+  html_document: default
+  pdf_document: default
+course: DATA 2401 Fall 2021
+header-includes: \usepackage{booktabs}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(warning=FALSE, message=FALSE, echo=TRUE)
+options(kableExtra.auto_format = TRUE)
+```
+by Rachel Cu & Rebecca Hinrichs
+
+
+# An Introduction
+
+By analyzing trends in world population, both historical and predictive, we're interested in exploring shifts in population by age and gender, and asking what the implications of those shifts may pose on the rest of the data. We have gathered data originated by the United Nations' Department of Economic and Social Affairs, and pivoted into manageability by Ahmet Hoso via Kaggle. The UN uses a variety of statistical methods in order to compile its data records and bases those methods on standardized census records taken every 10 years worldwide. Their analysis on this estimated data (years 1950 - 2019) in order to provide projections (years 2020 - 2100) in this compilation includes careful statistical inference in regards to population migration, fertility, live births, and census collection techniques for larger sample sizes and alternatives for smaller sample sizes (countries with fewer than 90,000 inhabitants). Our analysis will be careful not to disturb the UN's hard work in working these mathematical inferences into the data; therefore, when we discuss the projected data, we will assume accuracy as equal as those methods used to report the historical estimated data by the same governing body who wrote the rules of population data collection.
+
+We'll use data manipulation techniques using dplyr and tidyverse in order to direct our attention to the heavyweights in world population contributors and explore questions into those countries which exhibit the sharpest increase or decrease in population contributions. We'll use kableExtra and shiny in order to display our data clearly in tables. Additionally, we'll utilize ggplot2 and ggpubr to explore shifts and slopes in data trends by country. In order to display the tables and plots together, we'll utilize the tools found in the gridExtra and ggpmisc packages. Finally, knitr allows us to publish to html, which is a requirement to use kable and kableExtra's table visualization features.
+
+Understanding historical data of world population gives us insight into the factors which influence fluctuations and inflections of growth within a particular region, so that we may better understand where shifts should occur for future generations. Armed with that knowledge, the reader may lay the framework for intriguing studies of endless applications, such as leading economies, migration expectations, global health & wellness scales, agricultural supply, supporting civic infrastructures, climate change, or technological progress, just to name a few.
+
+
+# Packages Required
+
+```{r myTable}
+knitr::opts_chunk$set(echo = TRUE)
+#install.packages('kableExtra')
+#install.packages("ggpubr")
+#install.packages("gridExtra")
+#install.packages("ggpmisc")
+suppressPackageStartupMessages(library(tidyverse))    # suppress version warning
+suppressPackageStartupMessages(library(kableExtra))    # suppress version warning
+suppressPackageStartupMessages(library(ggpubr))    # suppress version warning
+suppressPackageStartupMessages(library(shiny))    # suppress version warning
+library(knitr)    # for html publication
+library(dplyr)    # for data manipulation
+library(ggplot2)    # for data visualization
+library(tidyverse)    # for data tidying
+library(kableExtra)    # for table visualization
+library(shiny)    # for window formatting for tables
+library(ggpubr)    # for creating and customizing ‘ggplot2’
+library(gridExtra)    # for formatting tables with graph windows
+library(ggpmisc)    # for plot & table tidying
+```
+
+
+# Data Preparation: 
+## World Population by Age and Sex from 1950 to 2100
+
+Our dataset comes from [Kaggle](https://www.kaggle.com/ahmethoso/wpp-population-by-age-and-sex). It's remarkably clean and requires no additional cleaning techniques. We will, however, adjust its presentation a bit for this report.
+```{r}
+# Import the data set of World Population provided at Kaggle (see citations)
+world_population <- read.csv("PopulationByAgeSex.csv")
+```
+
+First, we'll make one small adjustment. The data was imported with a (.) in the thousands place of all populations in order to represent population by millions. For our purposes, we'll move the decimal to the standard ones place. In terms of the data, this is really just cosmetic: it ensures our numbers are tidy and consistent across our plot and table visualization packages, and preferential for us to discuss whole numbers throughout our report.
+```{r}
+# Create a new data frame from the original by multiplying all 'Pop*' (population) columns by 1000
+adj_world_population <-
+world_population %>% mutate(across(starts_with('pop'), ~ .*1000))
+```
+
+Now let's take a peek into our data...
+```{r}
+# Verify new data frame contains population columns without decimals
+glimpse(adj_world_population)
+```
+
+Our data is organized by yearly observations for each reporting region, which is assigned a location identifier. Since we're interested in analyzing trends in the data rather than specific observations, we'll condense our data into populations represented by their specific reporting regions. 
+```{r}
+# Arrange data by Location, then count the number of distinct Locations
+adj_world_population %>% arrange(Location) %>% count(Location) %>% nrow()
+```
+
+We have 440 rows representing the various reporting regions. We'll display the first ten to get an idea of how these regions are distinguished.
+```{r}
+# Display data groups in terms of Region
+adj_world_population %>% arrange(Location) %>% count(Location) %>% 
+  select(Location) %>%  head(10) %>%   # show 10 of 440
+  kbl(caption = 'World Population Regions') %>% 
+  kable_classic_2(full_width = F, html_font = 'Cambria')
+```
+
+
+We can identify our regions' associated countries by using [the UN's region ISO definition list](https://population.un.org/wpp/DefinitionOfRegions/). To do this, we'll import another dataset from [Kaggle](https://www.kaggle.com/andradaolteanu/iso-country-codes-global), which contains just a table for each of the ISO Country Codes and their associated countries as listed in the UN's dataset. Here's a peek into that dataset.
+```{r}
+# Import a second data set for ISO country codes provided at Kaggle (see citations)
+country_codes <- read.csv("wikipedia-iso-country-codes.csv")
+glimpse(country_codes)
+```
+
+Finally, in order to condense our regions into discretely defined countries, we'll semi-join our two data sets in order to get only the countries and their respective location identifiers. Also, we changed column name 'Location' to 'Country', and column name 'Time' to 'Year'. The total country count is equal to the total number of countries as currently defined by the UN = 197 countries. (Note: non-member countries which are not represented in the UN's data collection are not included in our report.)
+```{r}
+# Semi-join our two data sets
+my_countries_data <- semi_join(adj_world_population, country_codes, by = c('LocID' = 'Numeric.code'))
+# Change column name of Location to Country
+colnames(my_countries_data)[3] <- 'Country'
+# Change column name of Time to Year
+colnames(my_countries_data)[4] <- 'Year'
+# Count the total countries
+my_countries_data %>% group_by(Country) %>% count() %>% nrow()
+
+```
+
+Our list of 197 countries returns 29,747 observations because each country name contains a group of observations, called "n"; this represents the number of years that particular country has contributed data. Here's an example:
+```{r}
+# Show one complete observation with new Country identifier and adjusted columns Country, Year
+my_countries_data %>% group_by(Country) %>% count() %>% head(1)
+```
+
+In other words, 'n' tells us that Afghanistan has n = 151 entries, or has contributed data for every year from 2100 - 1950 = 151 years inclusive. Let's test whether any countries have fewer than 151 years of census data to contribute.
+```{r}
+# Return Boolean variable if n < 151 for any Country group
+fewer_than <- my_countries_data %>% group_by(Country) %>% 
+  filter(n() < 151) %>% nrow()
+isFALSE(all.equal(fewer_than, 0))
+```
+
+There are no countries to report fewer than 151 years of census data, but we know that some of these countries have not existed that long. Based on the UN's methodology reported [here](https://unstats.un.org/unsd/methodology/m49/), the basis for population reporting is subdivided into continental regions which are assigned to their respective governing countries. When a country changes its boundary or name, that region is reassigned along with its historical data to the new country via its location identifier, 'LocID'. For regions which are missing census data, the UN has used statistical inference models based on locally informed census reports in order to construct point estimates- the same methods which have been used to construct predictive models for all countries for the years 2020 through 2100, and also used to describe interim information between data collection (we have yearly data but census collection occurs every 10 years worldwide). These methods are regionally based, and rely upon models which anticipate fertility, mortality, live births, and migration patterns, and while as accurate as possible the UN still maintains a confidence level of 80% to 95% for all missing and predictive data. We can be sure, however, that due to the nature of the data being collected and preserved from local collection efforts which are usually independent of governments as well as the careful construction of predictive statistical models, our data is as accurate and as complete as possible, and will be referenced throughout our report in terms of each region's present-day country.
+
+Here we show a random sample selection of 10 countries in order to display their listings now by country name.
+```{r}
+# Define a set of 10 randomly selected countries and display their observations
+set.seed(10)    # set seed for reproducibility
+random_countries <- my_countries_data[sample(nrow(my_countries_data), size = 10), ]
+random_countries %>%
+  select(Id, LocID, Country, Year, PopMale, PopFemale, PopTotal) %>% 
+  kbl(caption = 'World Population by Country') %>% 
+  kable_classic_2(full_width = F, html_font = 'Cambria')
+```
+
+We now have our new condensed dataset, which we'll be working with for the rest of our analysis. Now there are 197 groups (countries) with 151 rows each (years); 197 x 151 = 29,747 observations. The variables are 'Id' representing one individual piece of data collected, its respective 'LocID' or region, its country name 'Location', its relative year 'Time', and population count for each age gap of four years from age 0 to 100+ by gender, and finally population totals by gender regardless of age ('PopMale', 'PopFemale') and regardless of gender ('PopTotal') and its relative time span 'YearDataCompleted'. We're interested in exploring the major shifts in population counts and to understand if they may have any relative age and gender patterns, and will use their group identifiers ('Location'), or country names, as reference to discuss these patterns.
+```{r}
+# Display portion of new joined data set which uses Country for Location
+glimpse(my_countries_data)
+```
+
+# Exploratory Data Analysis
+
+When we look at the entire growth of the world population graphically, we observe an interestingly semi-logarithmic curve. We find this fascinating because before we plotted the data, we had expected to see that human population, like any scientific study of cell growth or economic model of population growth, should mimic a classic exponential curve. Notice that the slope of the curve is steepest around the millennium and begins to flatten around 2050. The points represent every 25 years.
+```{r}
+# World population from 1950 to 2100 plot
+pop_total_plot <- my_countries_data %>% 
+  filter(Year %in% c(1950, 1975, 2000, 2025, 2050, 2075, 2100) ) %>%
+  group_by(Year) %>% summarise( WorldPopulation = sum(PopTotal)) %>% 
+  ggplot(aes(x = Year, y = WorldPopulation))+ 
+  geom_point(color = 'red', size = 2) + 
+  geom_line(color = 'dark green', size = 1) + 
+  labs(title = 'World Population from 1950 to 2100', x = 'Year', y = 'Population')
+# World population from 1950 to 2100 table
+pop_total_table <- my_countries_data %>% 
+  filter(Year %in% c(1950, 2000, 2050, 2100) ) %>% 
+  group_by(Year) %>% summarise(WorldPopulation = sum(PopTotal))
+# Display plot & grid together
+grid.arrange(pop_total_plot,tableGrob(pop_total_table), ncol = 2, widths = c(2,1), clip = FALSE)
+```
+
+When we look into the numerical disparities from 1950 to 2100, we see that although the world’s population continues to grow, its decrease in slope indicates that the growth slows in pace significantly more than any other time period since 1950. From an estimated 2.5 billion people worldwide in 1950, the global population increased to around 6.1 billion in 2000, projects to grow to over 9.6 billion in 2050, and to nearly 10.7 billion by 2100. Our growth gaps are 3.6, 3.5, and only 1.1 billion every 50 years respectively; therefore, we observe a significant projected slowdown in population growth in just 50 years, between 2050 and 2100.
+
+
+# Population Contributions by Country
+## Who are the major contributors?
+
+
+Let's dive a little deeper into where this overall shift in world population is happening. By the data we just explored, we see that the jumps in world population are fairly consistent until 2050, when growth slows down to less than 30% of the previous 50 years. To see where this is happening, let's take a look at the top 10 countries with the largest populations in 1950, 2021, 2050, and 2100.
+```{r}
+# World population totals in 1950 sorted by 10 most populated countries
+table_1950 <- my_countries_data %>% filter(Year == '1950') %>% 
+  arrange(desc(PopTotal)) %>% select(LocID, Country, PopTotal) %>% head(10)
+# World population totals in 2021 sorted by 10 most populated countries
+table_2021 <- my_countries_data %>% filter(Year == '2021') %>% 
+  arrange(desc(PopTotal)) %>% select(LocID, Country, PopTotal) %>% head(10)
+# World population totals in 2050 sorted by 10 most populated countries
+table_2050 <- my_countries_data %>% filter(Year == '2050') %>% 
+  arrange(desc(PopTotal)) %>% select(LocID, Country, PopTotal) %>% head(10)
+# World population totals in 2100 sorted by 10 most populated countries
+table_2100 <- my_countries_data %>% filter(Year == '2100') %>% 
+  arrange(desc(PopTotal)) %>% select(LocID, Country, PopTotal) %>% head(10)
+# visualization Table for World Population from 1950
+text_tbl1 <- ((table_1950) %>% 
+  kbl(format = 'html', table.attr = "style = 'width:50%;'",
+      caption = 'Top 10 Populations by Country in 1950') %>% 
+  kable_classic_2(full_width = F, html_font = 'Cambria', 
+                  position = 'left'))
+# visualization Table for World Population from 2021
+text_tbl2 <- ((table_2021) %>% 
+  kbl(format = 'html', table.attr = "style = 'width:50%;'",
+      caption = 'Top 10 Populations by Country in 2021') %>% 
+  kable_classic_2(full_width = F, html_font = 'Cambria', 
+                  position = 'right'))
+# visualization Table for World Population from 2050
+text_tbl3 <- ((table_2050) %>% 
+  kbl(format = 'html', table.attr = "style = 'width:50%;'",
+      caption = 'Top 10 Populations by Country in 2050') %>% 
+  kable_classic_2(full_width = F, html_font = 'Cambria', 
+                  position = 'left'))
+# visualization Table for World Population from 2100
+text_tbl4 <- ((table_2100) %>% 
+  kbl(format = 'html', table.attr = "style = 'width:50%;'",
+      caption = 'Top 10 Populations by Country in 2100') %>% 
+  kable_classic_2(full_width = F, html_font = 'Cambria', 
+                  position = 'right'))
+# Display the four tables next to each other in order to show numerical disparities
+text_tbl1
+text_tbl2
+text_tbl3
+text_tbl4
+```
+
+
+After only 29 years, we see that most of the top 10 countries of 2021 have retained or switched positions with a ranking neighbor, but that Nigeria, once in position #7, is now in 3rd place; that's a jump of 4 positions in only 29 years! Also within this relatively short time frame, Russia and Mexico have left our rankings in exchange for Ethiopia and Congo. After another 50 years, in 2100, the top 5 have retained their same positions. This is interesting considering the switches and shifts only 29 years had made to our earlier table. Additionally by 2100, we see a strong jump from Congo by 3 positions, and that Brazil and Bangladesh have been bumped from their rankings in favor of Tanzania and Egypt.
+
+To get a better snapshot of these shifts by country, let's take a look at a set of bar plots representing this data.
+```{r}
+# visualization Plot for World Population from 1950
+top_1950 <- my_countries_data %>% filter(Year == '1950') %>% arrange(desc(PopTotal)) %>% 
+  select(Country, PopTotal) %>% head(10) %>% 
+  mutate(Country = fct_reorder(Country, PopTotal)) %>% 
+  ggplot(aes(x = PopTotal , y = Country)) + 
+  geom_col(fill = 'orange')+
+  labs(title = 'Year 1950', x = 'Population', y = 'Country' )+
+  theme(axis.text = element_text(size = 7), axis.title.y = element_text(size = 10), axis.title.x = element_text(size = 10))
+# visualization Plot for World Population from 2021
+top_2021 <- my_countries_data %>% filter(Year == '2021') %>% arrange(desc(PopTotal)) %>% 
+  select(Country, PopTotal) %>% head(10) %>% 
+  mutate(Country = fct_reorder(Country, PopTotal)) %>% 
+  ggplot(aes(x = PopTotal , y = Country)) + 
+  geom_col(fill = 'dark green')+
+  labs(title = 'Year 2021', x = 'Population', y = 'Country' )+
+  theme(axis.text = element_text(size = 7), axis.title.y = element_text(size = 10), axis.title.x = element_text(size = 10))
+# visualization Plot for World Population from 2050
+top_2050 <- my_countries_data %>% filter(Year == '2050') %>% arrange(desc(PopTotal)) %>% 
+  select(Country, PopTotal) %>% head(10) %>% 
+  mutate(Country = fct_reorder(Country, PopTotal)) %>% 
+  ggplot(aes(x = PopTotal , y = Country)) + 
+  geom_col(fill = 'blue')+
+  labs(title = 'Year 2050', x = 'Population', y = 'Country' )+
+  theme(axis.text = element_text(size = 7), axis.title.y = element_text(size = 10), axis.title.x = element_text(size = 10))
+# visualization Plot for World Population from 2100
+top_2100 <- my_countries_data %>% filter(Year == '2100') %>% arrange(desc(PopTotal)) %>% 
+  select(Country, PopTotal) %>% head(10) %>% 
+  mutate(Country = fct_reorder(Country, PopTotal)) %>% 
+  ggplot(aes(x = PopTotal , y = Country)) + 
+  geom_col(fill = 'dark red')+
+  labs(title = 'Year 2100', x = 'Population', y = 'Country' )+
+  theme(axis.text = element_text(size = 7), axis.title.y = element_text(size = 10), axis.title.x = element_text(size = 10))
+# Display Bar Plots in Single Window to Visualize Data Disparities
+ggarrange(top_1950, top_2021, top_2050, top_2100)
+```
+
+Our bar graphs make it pretty clear how strong of an influence the top contributors to world population are currently, but we can see a significant change coming by 2100, where those top contributors decrease not just in growth but in population size, while the smaller contributors will have experienced much more growth by then. Most notably, in 2021, we see that China has held the top position for the largest contributor to world population, and that India is projected to hold that title by 2050 and in 2100. In which years will India have the largest population in the world?
+```{r}
+# Display Visualization Table of those years only in which India will have the highest population totals
+my_countries_data %>% select(Year,Country, PopTotal) %>% group_by(Year) %>%  
+  filter(PopTotal == max(PopTotal)) %>% 
+  filter(Country == 'India') %>% 
+  kbl(caption = "India as Top World Pop Contributor") %>%
+  kable_classic_2(full_width = F, html_font = "Cambria", font_size = 7)
+```
+India will hold the top contributor ranking every year from 2027 through 2100.
+
+
+# Population Shifts by Country
+## Who will see the strongest shifts in population contribution?
+
+By exploring the top 10 countries with the greatest contributions to world population over our 50 year markers, we were able to identify interesting shifts projected in population growth contributions. We'd like to analyze where and when these shifts are projected to occur. We'll start by narrowing in the present-day at the Top 5 countries with the largest population in 2021. By concentrating on these 5 countries, we hope to examine patterns in the data which may account for these shifts.
+```{r}
+# Set vector to contain population variables for Top 5 from Top 10 Most Populated Countries in 2021
+top_countries <- c('China', 'India', 'United States of America', 'Indonesia', 'Pakistan')
+```
+
+Using a new vector containing these 5 countries, we can observe the shift in population among all 5. Notice the top 2 have an intersection where India takes over the title of largest population contributor in 2027. Also, we find an interesting shift from population rise to population decline for both countries while the next 3 contenders maintain slower but steadier growth during this time, evident by a flattening curve. Indonesia also shows a slight decline, but China's and India's declines are significant. Note: Present day is indicated by the blue vertical line through the center of the graph.
+```{r}
+# Total population of the 5 selected countries from 1950 to 2100
+my_countries_data %>% filter(Country %in% top_countries) %>% 
+  ggplot(aes(x = Year, y = PopTotal, color = Country)) + geom_line() + 
+  scale_x_continuous(breaks = c(1950,2000,2021,2050,2100))+
+  geom_vline(xintercept = 2021, color = 'blue', linetype = 'longdash') +
+  labs(title = 'Total Population from 1950 to 2100',
+       subtitle ='Countries: China, India, United States of America, Indonesia, Pakistan', 
+       x = 'Year', y = 'Population', colour = 'Country')
+```
+
+Let's investigate whether these shifts happen by gender or by age group. 
+
+First we'll take a look at the Total Male Population among these top 5 countries.
+```{r}
+# Total male population of 5 selected countries from 1950 to 2100
+male_plot <- my_countries_data %>% filter(Country %in% top_countries) %>% 
+  ggplot(aes(x = Year, y = PopMale, color = Country)) + geom_line() +
+  scale_x_continuous(breaks = c(1950,2000,2021,2050,2100))+
+  geom_vline(xintercept = 2021, color = 'blue', linetype = 'longdash') +
+  labs(title = 'Total Male Population',
+       x = 'Year', y = 'Population',colour = 'Country')
+# Total female population of 5 selected countries from 1950 to 2100
+female_plot <- my_countries_data %>% filter(Country %in% top_countries) %>% 
+  ggplot(aes(x = Year, y = PopFemale, color = Country)) + geom_line() +
+  scale_x_continuous(breaks = c(1950,2000,2021,2050,2100))+
+  geom_vline(xintercept = 2021, color = 'hotpink', linetype = 'longdash') +
+  labs(title = 'Total Female Population',
+       x = 'Year', y = 'Population',colour = 'Country')
+# Display both male and female plots next to each other to visualize any data disparity
+ggarrange(male_plot, female_plot, common.legend = TRUE, legend="bottom")
+```
+We see that the shifts in the total male population appear to be a near exact mimic of the total female population. Therefore, we'll continue our efforts in exploring whether there may be stronger evidence in population shifts by age group.
+
+
+## Projected Population Shifts by Age Group
+
+Taking a look at the projected percentage of population under 35 years of age by these same 5 countries, we find that the data gets really interesting. Young people of reproductive age are decreasing among all 5 countries, but Pakistan still carries the largest percentage of young people throughout our projections. By 2100, the lowest percentage of the top 5 are India and China- historically the top contributors throughout our analysis. Could this explain why the incline shifts to become a decline in our projected data?
+```{r}
+top_5 <- my_countries_data %>% filter(Country %in% top_countries)   # we'll use this vector later as well
+# Visualization Plot of Top 5 Countries' population Ages 0 - 34 from 2021 to 2100
+top_5 %>% filter(Year >= 2021) %>% 
+  mutate(under_35 = PopTotal_0_4 + PopTotal_5_9 + PopTotal_10_14 + 
+           PopTotal_15_19 + PopTotal_20_24 + PopTotal_25_29 + PopTotal_30_34) %>%
+  select(Year, Country, PopTotal, under_35) %>% 
+  mutate(prop_under_35 = under_35/ PopTotal * 100) %>% 
+  ggplot(aes(x = Year, y = prop_under_35, color = Country)) +
+  geom_line() +
+  labs(title = 'Projected Percentage of Population Under 35 Years of Age 
+       Between 2021 and 2100', 
+       subtitle = 'Countries: China, India, United States of America, Indonesia, Pakistan',
+       x = 'Year', y ='Percentage', colour = 'Country')
+```
+
+Now we'll take a look at the projected percentage of population aged 35-64 by these same countries. We're using these ages to represent the working class. This depiction is particularly interesting, given the non-uniform nature of the declining curves. China appears to experience sharp drops and fluctuate wildly until it nearly disappears by 2100. India seems to peak by around 2035 and shows significant decline thereafter, and according to our chart, Pakistan completely takes over this category by about 2055. Could this chart suggest any implications for these nations' projected GDP and economic strength?
+```{r}
+# Visualization Plot of Top 5 Countries' population Ages 35 - 64 from 2021 to 2100
+top_5 %>% filter(Year >= 2021) %>% 
+  mutate(age_35_64 = PopTotal_35_39 + 
+           PopTotal_40_44 + PopTotal_45_49 +
+           PopTotal_50_54, PopTotal_55_59, PopTotal_60_64) %>% 
+  select(Year, Country, PopTotal, age_35_64) %>% 
+  mutate(prop_35_64 = age_35_64/ PopTotal * 100) %>% 
+  ggplot(aes(x = Year, y = prop_35_64, color = Country))+
+  geom_line()+
+  labs(title = 'Projected Percentage of Population Age 35-64
+       Between 2021 and 2100', 
+       subtitle = 'Countries: China, India, United States of America, Indonesia, Pakistan',
+       x = 'Year', y ='Percentage', colour = 'Country')
+```
+
+Finally, we'd like to take a look at the projected percentage of population over 65 years of age among our selection of countries. We're using these ages to represent senior citizens. Here we find an overall increase of these countries containing more and more elderly in proportion to its young and working class citizens. Additionally, by 2035 according to the graph, we find China to have the largest percentage of elderly contribution to world population totals. In other words, of China's overall decreasing contribution to world population, it appears that the majority of the population it will be contributing will be over 65 years of age.
+```{r}
+# Visualization Plot of Top 5 Countries' population Ages 65 - 100+ from 2021 to 2100
+top_5 %>% filter(Year >= 2021) %>% 
+  mutate(over_65 = PopTotal_65_69 + PopTotal_70_74 + PopTotal_75_79 + PopTotal_80_84 +
+           PopTotal_85_89+ PopTotal_90_94 +
+           PopTotal_95_99, PopTotal_100Plus) %>% 
+  select(Year, Country, PopTotal, over_65) %>% 
+  mutate(prop_over_65 = over_65/ PopTotal * 100) %>% 
+  ggplot(aes(x = Year, y = prop_over_65, color = Country))+
+  geom_line()+
+  labs(title = 'Projected Percentage of Population Over 65 Years of Age 
+       Between 2021 and 2100', 
+       subtitle = 'Countries: China, India, United States of America, Indonesia, Pakistan',
+       x = 'Year', y ='Percentage', colour = 'Country')
+```
+
+# Trends in Data Projections
+## What can our data tell us about 2021 - 2100?
+
+We've explored the overall shifts in world population by finding the largest contributors to the world population totals and examining how their shifts in population may be affecting the total world population's growth decline. While the total world population growth does slow down, we never see a decline like we do for these top contributors. It seems to be a logical next step, then, to explore which countries may BECOME the largest contributors to world population by analyzing their trends in growth contributions.
+
+Which top 5 countries experience the sharpest rise in population from 2021 to 2100, and by how much?
+```{r}
+# Get the population in 2021 and 2100
+data <- my_countries_data %>% filter(Year %in% c(2021, 2100)) %>% select(Year, Country, PopTotal) 
+# Calculate the total change in population of each country
+pop_diff <- data %>% group_by(Country) %>%
+  mutate(difference = (PopTotal - lag(PopTotal))) %>% 
+  select(Country, difference) %>% 
+  na.omit()
+# Filter to get countries with increasing in population only
+pop_increase <- pop_diff %>% filter(difference > 0)
+# Calculate the increase in percentage compared to year 2021
+# then get the country with the biggest increase in population from 2021 to 2100
+projected_increase <- data %>% filter(Year == 2021) %>% 
+  full_join(pop_increase, by = 'Country') %>% 
+  mutate(percent_diff = round((difference/PopTotal*100),digits = 2)) %>% 
+  arrange(desc(percent_diff))
+# Display visualization Plot of Findings
+projected_increase %>% arrange(desc(percent_diff)) %>%
+  head(20) %>% 
+  mutate(Country = fct_reorder(Country, percent_diff)) %>%
+  ggplot(aes(x= percent_diff, y = Country, fill = PopTotal))+
+  geom_col()+
+  labs(title = 'Top 20 Countries Where Population is Projected to
+       Increase Between 2021 and 2100', x = 'Percentage Increase', y = 'Country',
+       colour = 'Total Population')
+```
+
+We find that all 5 countries will more than triple their present-day populations within just 80 years, and Niger will increase at an impressive 556%! According to the UN's definitions of world economies, all 5 of these countries are listed as developing countries, and Niger in particular currently ranks last in the UN's [Human Development Index](http://hdr.undp.org/en/content/human-development-index-hdi), for reasons of high fertility coupled with low economic opportunity (access to education, import/export proportion, and income per capita). What kinds of implications could these findings have on world hunger, poverty, and the necessity for a greater distribution of wealth on our global society?
+
+What will the population of Niger be in 2021 and in 2100?
+```{r}
+# Create table to demonstrate Niger's data
+niger_table <- data %>% filter(Country == 'Niger')
+# Visualization plot to demonstrate Niger's population growth from 2021 to 2100
+niger_plot <- my_countries_data %>% 
+  filter(Country == 'Niger' & Year %in% c(2021, 2040, 2060, 2080, 2100)) %>%
+  ggplot(aes(x = Year, y =PopTotal)) + geom_point()+ geom_line()+
+  labs(title = 'Population of Niger from 2021 to 2100', x = 'Year', y = 'Population')
+# Display plot and table together
+grid.arrange(niger_plot,tableGrob(niger_table), ncol = 2, widths = c(2,1), clip = FALSE)
+```
+
+
+# Population Forecasting
+## What can we know about world population beyond 2100?
+
+Our analysis so far has shown us how the historical top population contributors are projected to soon lose their ranking while the top growth contributors are projected to gain exponential momentum. We'd like to know what the future population will continue to look like by analyzing the population of live births from 1950 until 2100. In particular, we'd like to see what 2100 could show us about new babies contributing to world population. Note: the pink line indicates present-year.
+```{r}
+# Visualization plot to demonstrate population of Ages 0 - 4 from 1950 to 2100
+birth_total_plot <- my_countries_data %>% select(Year, PopTotal_0_4) %>% 
+  group_by(Year) %>% 
+  summarise(Total_0_4 = sum(PopTotal_0_4)) %>%
+  ggplot(aes(x = Year, y = Total_0_4)) + geom_line() +
+  scale_x_continuous(breaks = c(1950,2000,2021,2050,2100))+
+  geom_vline(xintercept = 2021, color = 'hot pink', linetype = 'longdash') +
+  labs(title = 'Total World Population Ages 0-4 between 1950 and 2100',
+       x = 'Year', y = 'Population')
+# Visualization Table to demonstrate population of Ages 0 - 4 from 1950 to 2100
+birth_total_table <- my_countries_data %>% 
+  filter(Year %in% c(1950, 2000, 2050, 2100) ) %>% 
+  group_by(Year) %>% summarise(Pop_0_4 = sum(PopTotal_0_4))
+# Display plot and table together
+grid.arrange( birth_total_plot,tableGrob(birth_total_table), ncol = 2, widths = c(2,1), clip = FALSE )
+```
+
+
+The data makes it clear that live birth contributions to the world population is expected to decrease. Therefore, though we'll see a large push from growth contributors like Niger, the sharp decline in new births from our current contributors like China will, overall, decrease the global population significantly by 2050, according to our graph. New births appear projected to reach millennium levels by 2100. If the downward slope continues its course, could we expect 1950 levels to be reached within the next 80 years?
+
+Let's take a closer look at which countries have experienced the strongest decrease in population. Which country experiences the largest percent decrease in population from 2021 to 2100?
+```{r}
+# Filter to get data of countries with decrease in population
+dec_countries <- pop_diff %>% filter(difference < 0)
+# Calculate to get top 10 countries with most decreasing population
+projected_decrease <- data %>% filter(Year == 2021) %>% 
+  inner_join(dec_countries, by = 'Country') %>% 
+  mutate(percent_decrease = round((-difference/PopTotal*100), digits = 2)) %>%
+  select(PopTotal, Country, percent_decrease) %>% 
+  arrange(desc(percent_decrease))
+# Visualization plot to show top 10 countries with most decreasing population
+projected_decrease %>% arrange(desc(percent_decrease)) %>% head(20) %>% 
+  mutate(Country = fct_reorder(Country, percent_decrease)) %>%
+  ggplot(aes(x= percent_decrease, y = Country, fill = PopTotal))+
+  geom_col()+
+  labs(title = 'Top 20 Countries with Projected Decrease
+       Between 2021 and 2100', x = 'Percentage Decrease', y = 'Country',
+       colour = 'Total Population')
+```
+
+Our data projects that Albania will have the largest percentage population decrease, with a projected national population loss of over half of its current citizens. Albania is listed in the UN's Human Development Index as an economy in transition. What kinds of implications could this have on projected migration patterns and Albania's economic future?
+
+What will Albania's population decline look like between 2021 and 2100?
+```{r}
+# Create table to demonstrate Albania's data
+albania_table <- data %>% filter(Country == 'Albania')
+# Visualization plot to demonstrate Albania's population growth from 2021 to 2100
+albania_plot <- my_countries_data %>% filter(Country == 'Albania' & Year %in% c(2021, 2040,2060, 2080,2100)) %>%
+  ggplot(aes(x = Year, y =PopTotal)) + geom_point()+ geom_line()+
+  labs(title = 'Population of Albania from 2021 to 2100', x = 'Year', y = 'Population')
+# Display plot and table together
+grid.arrange( albania_plot,tableGrob(albania_table), ncol = 2, widths = c(2,1), clip = FALSE )
+```
+
+
+We see a remarkable number of islands and Slavic countries represented in this list, and over one-third are identified by the UN as economies in transition. What implications could this have for the future economies of these nations, and how might migration patterns, mobility, and political stability affect their populations?
+
+One more factor we cannot fail to address when discussing population decline should be the reality of factors such as epidemics and pandemics. At the time of this report, the world has already [lost nearly 259 million lives](https://ourworldindata.org/covid-deaths) to Covid-19 and the incline of deaths is, unfortunately, not showing a decrease at this time. The impact a pandemic or epidemic has on its population is regionally biased by its factors of economic development and population density. Our data set was developed this year by data collected through mid-2019, so we are not seeing many of these numbers reflected in our data. Another impact to our analysis will be the reporting of mortality data, which has [known errors in accuracy](https://www.un.org/development/desa/pd/events/TAG), and will not be clear until the next round of census data has been collected, which happens every ten years. The UN also reports [an effect on fertility](https://www.un.org/development/desa/pd/sites/www.un.org.development.desa.pd/files/files/documents/2021/Aug/undesa_pd_egm_feretility_2020_key_messages_23aug.2021.pdf) by Covid-19 until 2024. That said, it's difficult to say when we will no longer see its effects on population decline since we have yet to see a decrease in our slope of its daily mortality rate. Needless to say, the UN has an advisory group already working on it, and we can expect it to be not just a strong informer of our current population data, but also importantly informative to statistical models which are used to predict population effects by pandemic and epidemic frequencies according to those regional factors.
+
+
+# Other Considerations
+
+We've explored a number of questions using our data and have identified when and where population shifts have historically and are expected to take place. Using data analysis and visualization techniques, we've been able to dive deeper into the data to consider patterns of shifting and ask more meaningful questions about the factors affecting them and their possible implications. We've been able to do this by asking questions about population shifts in respect to their age groups, but have largely ignored the differences in gender populations. we wanted to address why we left those questions largely out of our report. Here, we compare the total female to male populations from 1950 to 2100, to see if there is any significant disparity between the two.
+```{r}
+# Data table comparing female to male total world populations per 15 years
+male_female <- my_countries_data %>% group_by(Year) %>% 
+  summarise(total_female = sum(PopFemale), total_male = sum(PopMale)) 
+male_female_table <- male_female %>% 
+  filter(row_number() %% 50 == 1)
+# Graph plotting quantity of male versus female population by year
+male_female_plot <- male_female %>% 
+  ggplot(aes(x = total_female, y = total_male, color = Year)) + 
+  geom_point() +
+  theme(legend.position = 'bottom')+
+  labs( title = 'Total Female vs Total Male Populations From 1950 to 2100',
+        x = 'Total Female',
+       y = 'Total Male')
+# Display plot and table together
+grid.arrange(male_female_plot,tableGrob(male_female_table), 
+              ncol = 2, widths = c(1.5,1), clip = FALSE)
+```
+Our table shows similar female to male numbers, and our graph appears completely linear, demonstrating women and men will continue to account for world population nearly equally until 2100 as they have historically since 1950.
+
+
+
+## Summary
+
+We were interested in exploring shifts and trends in World Population data both historically and predictively in terms of country, and exploring any possible nuances in gender or age differences describing those shifts. We found significant age differences accounting for shifts in total population according to the data, and evidence that those countries with the strongest contribution to world population will see a sharp decline in the coming years, which, by looking at the age gap data, would be likely due to lower reproductive rates and strong emigration patterns. Likewise, countries seeing the strongest inclines in population may expect the highest number of live births in future years as well as possible immigration patterns to account for their steep climb in population dominance. The country which appears to dominate world population contribution for the next few decades will be India, overtaking China's claim of such a status currently within 6 short years, and the country which appears to be the strongest contender to achieve this name in years projected beyond our data set may be Niger, if growth and decline patterns continue along these projections. Further, we observe that our growth and decline patterns largely follow exponential shifts in data particularly among the 2 largest contenders for world population dominance, suggesting a diminishing returns exponential growth pattern and decline. Based on what we know about the data collection and seeing the historical overall rise in live births and longevity, we can estimate that the predicted lull in population growth most likely owes to reduced levels of fertility, notably in the most developed countries of the world, while the expected continuity of increase may continue to see promise by smaller and less developed countries gaining momentum over the years to come. We maintain that given these shifts in population data, the reader may be able to investigate further implications of economic strength using working age counts, migration and fertility expectations using reproductive age and live birth counts, health & wellness cost burdens on countries with higher elderly counts, and implications for developed infrastructure and wealth distribution gaps, to name only a few. The application of this data set is wide and significant, and we found it exciting to chisel just the tip of the iceberg!
+
+## Citations
+
+Hoso, Ahmet. (2021). Population by Age and Sex from 1950 to 2100 (Version 1). [Data set]. https://www.kaggle.com/ahmethoso/wpp-population-by-age-and-sex
+
+International Organization for Standardization ISO Central Secretariat. "The International Standard for Country Codes and Codes for their Subdivisions." ISO 3166: Country Codes. [Online article.] https://www.iso.org/iso-3166-country-codes.html
+
+Olteanu, Andrada. (2019). ISO Country Codes - Global: Alpha-2 & Alpha-3 Codes for Countries (Version 1). [Data set]. https://www.kaggle.com/andradaolteanu/iso-country-codes-global
+
+Ritchie, Hannah, Edouard Mathieu, Lucas Rodés-Guirao, Cameron Appel, Charlie Giattino, Esteban Ortiz-Ospina, Joe Hasell, Bobbie Macdonald, Diana Beltekian and Max Roser (2020) - "Coronavirus Pandemic (COVID-19)". Published online at OurWorldInData.org. Retrieved from: 'https://ourworldindata.org/coronavirus' [Online Resource]. Contains dynamic content, cited as requested by authors.
+
+United Nations, Department of Economic and Social Affairs,Population Division. "Technical Advisory Group on COVID-19 Mortality Assessment." 1 February 2021. [Online article]. https://www.un.org/development/desa/pd/events/TAG
+
+United Nations, Department of Economic and Social Affairs, Population Division. "The Impact of the COVID-19 Pandemic on Fertility." August 2021. [Online publication]. https://www.un.org/development/desa/pd/sites/www.un.org.development.desa.pd/files/files/documents/2021/Aug/undesa_pd_egm_feretility_2020_key_messages_23aug.2021.pdf
+
+United Nations, Department of Economic and Social Affairs, Statistics Division. Handbook on Geospatial Infrastructure in Support of Census Activities: Studies in Methods [Series F No. 203]. ST/ESA/STAT/SER.F/103 New York, United Nations 2009. [Online publication]. https://unstats.un.org/unsd/demographic-social/Standards-and-Methods/files/Handbooks/population-and-housing-censuses/Seriesf_103-E.pdf
+
+United Nations, Department of Economic and Social Affairs, Statistics Division. Handbook on Civil Registration, Vital Statistics and Identity Management Systems: Communication for Development [Final Draft]. New York, United Nations Statistics Division, Sept 2019. [Online publication]. https://unstats.un.org/unsd/demographic-social/Standards-and-Methods/files/Handbooks/crvs/CRVS-IdM-E.pdf
+
+United Nations, Department of Economic and Social Affairs, Population Dynamics. "Definition of Regions." World Population Prospects 2019. [Online article]. https://population.un.org/wpp/DefinitionOfRegions/
+
+United Nations, Department of Economic and Social Affairs, Population Division (2019). World Population Prospects 2019, Online Edition. Rev. 1. [Online article.] https://population.un.org/wpp/Download/Metadata/Documentation/
+
+United Nations, Department of Economic and Social Affairs, Population Division (2019). World Population Prospects 2019: Methodology of the United Nations population estimates and projections (ST/ESA/SER.A/425). https://population.un.org/wpp/Publications/Files/WPP2019_Methodology.pdf
+
+United Nations, Department of Economic and Social Affairs, Development Policy and Analysis Division. "Country Classification." World Economic Situation and Prospects. [Online article]. https://www.un.org/en/development/desa/policy/wesp/wesp_current/2014wesp_country_classification.pdf
+
+United Nations Development Programme. "Human Development Index (HDI)." Human Development Reports. [Online article]. http://hdr.undp.org/en/content/human-development-index-hdi
+
+Various Contributors. "Niger." Wikipedia: The Free Encyclopedia. [Online article]. Updated 26 Nov 2021. http://hdr.undp.org/en/content/human-development-index-hdi
